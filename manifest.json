@@ -1,7 +1,7 @@
 {
   "id": "trade-republic-importer",
   "name": "Trade Republic Importer",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Import Trade Republic stock and derivative transactions (CSV export) with standard market resolution and duplicate check.",
   "author": "tr-wealthfolio-addon",
   "main": "dist/addon.js",

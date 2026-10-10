@@ -14,8 +14,9 @@ Community addon. Not affiliated with Trade Republic or Wealthfolio.
    `CASH` transfer rows (`TRANSFER_*` inbound/outbound). Other cash rows
    (interest, …) are skipped with a count.
 3. **Transfer pairs** — pick the counterparty account (your bank /
-   depository): each deposit becomes a `TRANSFER_OUT` + `TRANSFER_IN` pair
-   via `saveTransferPair`, duplicate-checked per leg (same day + same
+   depository) as the default for all cash transfers, or override the account
+   on individual rows. Each transfer becomes a `TRANSFER_OUT` + `TRANSFER_IN`
+   pair via `saveTransferPair`, duplicate-checked per leg (same day + same
    amount) and auto-disabled with a reason.
 4. **Standard market resolution** — ordinary stocks use Wealthfolio's
    standard market providers. Derivatives and ISINs without a standard quote
@@ -60,12 +61,13 @@ forward-slash paths, so a zip built on any OS installs everywhere.
 2. In the addon:
    1. **Target account** — choose where securities are imported.
    2. **Trade Republic CSV** — select the exported file.
-   3. **Standard market lookup** — wait for automatic resolution
-      (`STANDARD` vs `MANUAL`), then **Check duplicates**.
-   4. **Cash transfers** — if present, choose the counterparty account
-      (your bank/depository). Duplicates are auto-disabled.
-   5. **Review** — uncheck anything to skip, `force` duplicates only if
-      you really want them twice, then **Import**.
+   3. **Cash transfers** — if present, choose the counterparty account
+      (your bank/depository) and import these here. Duplicates are auto-disabled.
+   4. **Standard market lookup and duplicate check** — wait for automatic
+      resolution (`STANDARD` vs `MANUAL`), then check the trading rows.
+   5. **Review** — uncheck anything to skip, `force` duplicates only if you
+      really want them twice, then **Import** the selected trading rows. This
+      final import does not create cash transfers.
 3. Portfolio totals refresh automatically after import.
 
 Never commit your real CSV export: `*.csv` / `*.xlsx` are git-ignored.

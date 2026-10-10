@@ -1,6 +1,6 @@
 {
   "name": "trade-republic-importer",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Import Trade Republic stock and derivative transactions with standard market resolution and duplicate check.",
   "type": "module",
   "main": "dist/addon.js",

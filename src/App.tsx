@@ -49,6 +49,8 @@ export interface TransferPreview {
   record: TransferRecord;
   /** LEG key for selection state (record.lineNumber). */
   selected: boolean;
+  /** Optional per-row override; otherwise the default counterparty is used. */
+  counterpartyAccountId?: string;
   /** Duplicate reason, or null when insertable. */
   duplicateOf: string | null;
 }
@@ -176,21 +178,30 @@ export function TradeRepublicImporter({ ctx }: { ctx: AddonContext }) {
   async function detectTransferDuplicates(
     list: TransferPreview[],
     targetId: string,
-    counterId: string,
+    defaultCounterId: string,
   ): Promise<TransferPreview[]> {
-    let targetActs: Awaited<ReturnType<typeof ctx.api.activities.getAll>> = [];
-    let counterActs: Awaited<ReturnType<typeof ctx.api.activities.getAll>> = [];
+    let activitiesByAccount = new Map<
+      string,
+      Awaited<ReturnType<typeof ctx.api.activities.getAll>>
+    >();
     let allActs: Awaited<ReturnType<typeof ctx.api.activities.getAll>> = [];
     try {
-      [targetActs, counterActs, allActs] = await Promise.all([
+      const counterIds = [...new Set(
+        list.map((t) => t.counterpartyAccountId || defaultCounterId).filter(Boolean),
+      )];
+      const [targetActs, ...rest] = await Promise.all([
         ctx.api.activities.getAll(targetId),
-        ctx.api.activities.getAll(counterId),
+        ...counterIds.map((id) => ctx.api.activities.getAll(id)),
         ctx.api.activities.getAll(),
       ]);
+      activitiesByAccount = new Map(counterIds.map((id, i) => [id, rest[i]]));
+      allActs = rest[counterIds.length];
+      activitiesByAccount.set(targetId, targetActs);
     } catch (e) {
       ctx.api.logger.error(`TR transfer dup check failed: ${String(e)}`);
       return list;
     }
+    const targetActs = activitiesByAccount.get(targetId) ?? [];
     const hasLeg = (
       acts: typeof targetActs,
       type: string,
@@ -210,6 +221,7 @@ export function TradeRepublicImporter({ ctx }: { ctx: AddonContext }) {
       const amt = t.record.amount;
       if (amt === null) return { ...t, selected: false, duplicateOf: "Missing amount." };
       const day = dayOf(t.record);
+      const counterActs = activitiesByAccount.get(t.counterpartyAccountId || defaultCounterId) ?? [];
       const fromActs = t.record.direction === "IN" ? counterActs : targetActs;
       const toActs = t.record.direction === "IN" ? targetActs : counterActs;
       const transactionId = t.record.transactionId.trim().toLowerCase();
@@ -541,15 +553,46 @@ export function TradeRepublicImporter({ ctx }: { ctx: AddonContext }) {
   const [transfersCreated, setTransfersCreated] = useState(0);
   const [transferErrors, setTransferErrors] = useState<string[]>([]);
 
-  async function onImport() {
-    const toImport = rows.filter((r) => r.selected);
-    const pendingTransfers = transfers.filter((t) => t.selected && !t.duplicateOf);
-    if (toImport.length === 0 && pendingTransfers.length === 0) {
+  async function onImport(mode: "transfers" | "securities") {
+    const toImport = mode === "securities" ? rows.filter((r) => r.selected) : [];
+    let pendingTransfers: TransferPreview[] = [];
+    if (mode === "transfers") {
+      if (!counterpartyAccountId) {
+        setError("Pick the counterparty account for the cash transfers first.");
+        return;
+      }
+      setImporting(true);
+      setError(null);
+      // Check again immediately before inserting so a pair already imported
+      // from this or another session cannot be inserted a second time.
+      let checkedTransfers: TransferPreview[];
+      try {
+        checkedTransfers = await detectTransferDuplicates(
+          transfers,
+          accountId,
+          counterpartyAccountId,
+        );
+      } catch (e) {
+        setError(`Transfer duplicate check failed: ${e instanceof Error ? e.message : String(e)}`);
+        setImporting(false);
+        return;
+      }
+      setTransfers(checkedTransfers);
+      pendingTransfers = checkedTransfers.filter((t) => t.selected && !t.duplicateOf);
+    }
+    if (mode === "securities" && toImport.length === 0) {
       setError("Nothing selected to import.");
       return;
     }
-    setImporting(true);
-    setError(null);
+    if (mode === "transfers" && pendingTransfers.length === 0) {
+      setError("No new cash transfers are selected to import.");
+      setImporting(false);
+      return;
+    }
+    if (mode === "securities") {
+      setImporting(true);
+      setError(null);
+    }
     try {
       const payload = toImport.map((r) => applyResolution(r.mapped));
       // carry forceImport for rows the user explicitly forced
@@ -567,25 +610,22 @@ export function TradeRepublicImporter({ ctx }: { ctx: AddonContext }) {
       importedSummary = `${res.summary.imported}/${res.summary.total}`;
       } // end payload.length > 0
 
-      // Cash transfer pairs (deposit at the beginning, etc.): one
-      // TRANSFER_OUT + TRANSFER_IN pair per selected transfer. Failures are
-      // collected per transfer and never fail the securities import.
-      const pending = transfers.filter((t) => t.selected && !t.duplicateOf);
       let created = 0;
       const tErrors: string[] = [];
-      if (pending.length > 0 && counterpartyAccountId) {
+      if (mode === "transfers") {
         const target = accounts.find((a) => a.id === accountId);
-        const counter = accounts.find((a) => a.id === counterpartyAccountId);
-        for (const t of pending) {
+        for (const t of pendingTransfers) {
           const amt = t.record.amount;
           if (amt === null) {
             tErrors.push(`Line ${t.record.lineNumber}: missing amount.`);
             continue;
           }
+          const effectiveCounterpartyId = t.counterpartyAccountId || counterpartyAccountId;
+          const counter = accounts.find((a) => a.id === effectiveCounterpartyId);
           const fromId =
-            t.record.direction === "IN" ? counterpartyAccountId : accountId;
+            t.record.direction === "IN" ? effectiveCounterpartyId : accountId;
           const toId =
-            t.record.direction === "IN" ? accountId : counterpartyAccountId;
+            t.record.direction === "IN" ? accountId : effectiveCounterpartyId;
           try {
             await ctx.api.activities.saveTransferPair({
               fromAccountId: fromId,
@@ -613,8 +653,22 @@ export function TradeRepublicImporter({ ctx }: { ctx: AddonContext }) {
           }
         }
       }
-      setTransfersCreated(created);
-      setTransferErrors(tErrors);
+      if (mode === "transfers") {
+        setTransfersCreated((previous) => previous + created);
+        setTransferErrors((previous) => [...previous, ...tErrors]);
+        const createdLines = new Set(
+          pendingTransfers
+            .filter((t) => !tErrors.some((error) => error.startsWith(`Line ${t.record.lineNumber}:`)))
+            .map((t) => t.record.lineNumber),
+        );
+        setTransfers((prev) =>
+          prev.map((t) =>
+            createdLines.has(t.record.lineNumber)
+              ? { ...t, selected: false, duplicateOf: "Imported in this session." }
+              : t,
+          ),
+        );
+      }
 
       try {
         await ctx.api.portfolio.update();
@@ -628,11 +682,11 @@ export function TradeRepublicImporter({ ctx }: { ctx: AddonContext }) {
         // non-fatal
       }
       ctx.api.toast.success(
-        (importedSummary ? `Imported ${importedSummary} transactions` : "No securities selected") +
-          (created > 0 ? ` · ${created} transfer pair${created === 1 ? "" : "s"} created` : "") +
-          ".",
+        mode === "transfers"
+          ? `${created} transfer pair${created === 1 ? "" : "s"} created${tErrors.length ? ` · ${tErrors.length} failed` : ""}.`
+          : `Imported ${importedSummary} transactions.`,
       );
-      setStep("done");
+      if (mode === "securities") setStep("done");
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setError(`Import failed: ${msg}`);
@@ -719,7 +773,7 @@ export function TradeRepublicImporter({ ctx }: { ctx: AddonContext }) {
       </Card>
 
       {/* Cash transfers → counterparty account + review */}
-      {transfers.length > 0 && step !== "done" && (
+      {transfers.length > 0 && step !== "done" && step !== "review" && (
         <Card>
           <CardContent className="p-4 flex flex-col gap-3">
             <h2 className="font-medium">
@@ -727,7 +781,7 @@ export function TradeRepublicImporter({ ctx }: { ctx: AddonContext }) {
               {transfers.length} will be inserted as pairs
             </h2>
             <div className="flex gap-2 items-center flex-wrap text-sm">
-              <span>Counterparty account (your bank / depository):</span>
+              <span>Default counterparty account (used unless a row overrides it):</span>
               <select
                 className="border rounded px-2 py-2 text-sm bg-background"
                 value={counterpartyAccountId}
@@ -749,7 +803,7 @@ export function TradeRepublicImporter({ ctx }: { ctx: AddonContext }) {
                   <TableHead>Insert</TableHead>
                   <TableHead>Date</TableHead>
                   <TableHead>Direction</TableHead>
-                  <TableHead>From → To</TableHead>
+                  <TableHead>Account route</TableHead>
                   <TableHead>Amount</TableHead>
                   <TableHead>Status</TableHead>
                 </TableRow>
@@ -758,13 +812,16 @@ export function TradeRepublicImporter({ ctx }: { ctx: AddonContext }) {
                 {transfers.map((t) => {
                   const targetName =
                     accounts.find((a) => a.id === accountId)?.name ?? "target";
+                  const effectiveCounterpartyId =
+                    t.counterpartyAccountId || counterpartyAccountId;
                   const counterName =
-                    accounts.find((a) => a.id === counterpartyAccountId)?.name ??
+                    accounts.find((a) => a.id === effectiveCounterpartyId)?.name ??
                     "counterparty";
                   const route =
                     t.record.direction === "IN"
                       ? `${counterName} → ${targetName}`
                       : `${targetName} → ${counterName}`;
+                  const alreadyImported = t.duplicateOf === "Imported in this session.";
                   return (
                     <TableRow
                       key={t.record.lineNumber}
@@ -793,7 +850,41 @@ export function TradeRepublicImporter({ ctx }: { ctx: AddonContext }) {
                           {t.record.direction === "IN" ? "DEPOSIT" : "WITHDRAW"}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-xs">{route}</TableCell>
+                      <TableCell className="text-xs">
+                        <div>{route}</div>
+                        <select
+                          className="mt-1 border rounded px-1 py-1 text-xs bg-background"
+                          value={t.counterpartyAccountId ?? ""}
+                          disabled={importing || alreadyImported}
+                          aria-label={`Counterparty account for transfer on line ${t.record.lineNumber}`}
+                          onChange={(e) => {
+                            const override = e.target.value || undefined;
+                            setTransfers((prev) =>
+                              prev.map((x) =>
+                                x.record.lineNumber === t.record.lineNumber
+                                  ? {
+                                      ...x,
+                                      counterpartyAccountId: override,
+                                      selected: true,
+                                      duplicateOf: null,
+                                    }
+                                  : x,
+                              ),
+                            );
+                          }}
+                        >
+                          <option value="">
+                            Use default · {accounts.find((a) => a.id === counterpartyAccountId)?.name ?? "choose default"}
+                          </option>
+                          {accounts
+                            .filter((a: Account) => a.id !== accountId)
+                            .map((a: Account) => (
+                              <option key={a.id} value={a.id}>
+                                {a.name} · {a.currency}
+                              </option>
+                            ))}
+                        </select>
+                      </TableCell>
                       <TableCell className="text-xs">
                         {t.record.amount !== null ? Math.abs(t.record.amount) : "—"}{" "}
                         {t.record.currency}
@@ -818,9 +909,9 @@ export function TradeRepublicImporter({ ctx }: { ctx: AddonContext }) {
             <div>
               <Button
                 disabled={importing || !counterpartyAccountId}
-                onClick={() => void onImport()}
+                onClick={() => void onImport("transfers")}
               >
-                {importing ? "Importing…" : "Import with transfers"}
+                {importing ? "Importing…" : "Import cash transfers"}
               </Button>
             </div>
           </CardContent>
@@ -874,7 +965,7 @@ export function TradeRepublicImporter({ ctx }: { ctx: AddonContext }) {
             </Table>
             <div>
               <Button
-                disabled={resolving || checking || distinctIsins.length === 0}
+                disabled={resolving || checking || importing || distinctIsins.length === 0}
                 onClick={() => void onCheck()}
               >
                 {checking ? "Checking duplicates…" : "4 · Check duplicates"}
@@ -996,7 +1087,7 @@ export function TradeRepublicImporter({ ctx }: { ctx: AddonContext }) {
             <div>
               <Button
                 disabled={importing || counts.selected === 0}
-                onClick={() => void onImport()}
+                onClick={() => void onImport("securities")}
               >
               {importing ? "Importing…" : `Import ${counts.selected} transactions`}
               </Button>
