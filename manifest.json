@@ -1,0 +1,54 @@
+{
+  "id": "trade-republic-importer",
+  "name": "Trade Republic Importer",
+  "version": "1.0.0",
+  "description": "Import Trade Republic stock and derivative transactions (CSV export) with standard market resolution and duplicate check.",
+  "author": "tr-wealthfolio-addon",
+  "main": "dist/addon.js",
+  "sdkVersion": "3.9.0",
+  "minWealthfolioVersion": "3.9.0",
+  "enabled": true,
+  "contributes": {
+    "routes": [{ "id": "trade-republic-importer" }],
+    "links": {
+      "sidebar": [
+        {
+          "id": "trade-republic-importer",
+          "route": "trade-republic-importer",
+          "label": "Trade Republic",
+          "icon": "bank",
+          "order": 100
+        }
+      ]
+    }
+  },
+  "hostDependencies": {
+    "@tanstack/react-query": "^5.90.0",
+    "@wealthfolio/addon-sdk": "^3.9.0",
+    "@wealthfolio/ui": "^3.9.0",
+    "date-fns": "^4.1.0",
+    "lucide-react": "^0.561.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "recharts": "^3.7.0"
+  },
+  "permissions": [
+    {
+      "category": "accounts",
+      "functions": ["getAll"],
+      "purpose": "Let you pick the target account for imported transactions."
+    },
+    {
+      "category": "activities",
+      "functions": ["getAll", "checkImport", "import", "saveTransferPair"],
+      "purpose": "Preview (checkImport) and import Trade Republic transactions, detect duplicates, and insert cash deposits as transfer pairs."
+    },
+    {
+      "category": "portfolio",
+      "functions": ["update"],
+      "purpose": "Refresh calculations after import."
+    }
+  ],
+  "keywords": ["wealthfolio", "addon", "trade-republic", "import"],
+  "license": "MIT"
+}

@@ -1,0 +1,4 @@
+# Normalize line endings so the zip built on Windows is byte-identical in
+# structure to one built on Linux (forward slashes, no CRLF surprises).
+* text=auto eol=lf
+*.zip binary

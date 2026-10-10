@@ -1,0 +1,49 @@
+{
+  "name": "trade-republic-importer",
+  "version": "1.0.0",
+  "description": "Import Trade Republic stock and derivative transactions with standard market resolution and duplicate check.",
+  "type": "module",
+  "main": "dist/addon.js",
+  "keywords": ["wealthfolio", "addon", "trade-republic", "import"],
+  "license": "MIT",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite build --watch",
+    "dev:server": "wealthfolio-addon dev",
+    "clean": "node scripts/clean.mjs",
+    "package": "node scripts/package.mjs",
+    "bundle": "node scripts/clean.mjs && vite build && node scripts/package.mjs",
+    "lint": "tsc --noEmit",
+    "type-check": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@tanstack/react-query": "^5.90.0",
+    "@wealthfolio/addon-sdk": "^3.9.0",
+    "@wealthfolio/ui": "^3.9.0",
+    "date-fns": "^4.1.0",
+    "lucide-react": "^0.561.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "recharts": "^3.7.0"
+  },
+  "devDependencies": {
+    "@tanstack/react-query": "^5.90.20",
+    "@tailwindcss/vite": "^4.1.13",
+    "@types/node": "^20.0.0",
+    "@types/react": "^19.2.13",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.0.2",
+    "@wealthfolio/addon-dev-tools": "^3.9.0",
+    "@wealthfolio/addon-sdk": "^3.9.0",
+    "@wealthfolio/ui": "^3.9.0",
+    "archiver": "^7.0.1",
+    "date-fns": "^4.1.0",
+    "lucide-react": "^0.561.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "recharts": "^3.7.0",
+    "tailwindcss": "^4.1.13",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.5"
+  }
+}
