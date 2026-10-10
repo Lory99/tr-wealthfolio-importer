@@ -1,13 +1,15 @@
 name: Auto release on version bump
 
-# When package.json (and manifest.json) version changes on master,
-# create the tag + GitHub Release automatically, build the addon zip
-# and attach it.
-# NOTE: a Release created with GITHUB_TOKEN does NOT trigger the
-# `release` workflow, so this job builds/uploads the zip itself.
+# Runs after CI passes on master. If package.json/manifest.json declare a
+# version with no matching GitHub Release yet, create the tag + Release,
+# build the addon zip and attach it. Nothing happens on ordinary commits.
+# NOTE: a Release created with GITHUB_TOKEN does NOT trigger the `release`
+# workflow, so this job builds/uploads the zip itself.
 # `release.yml` remains for manually created Releases (via UI / dispatch).
 on:
-  push:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
     branches: [master]
   workflow_dispatch:
 
@@ -16,17 +18,20 @@ permissions:
 
 jobs:
   release-if-bumped:
+    # Only release green CI (manual dispatch always runs).
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout tested commit
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Read versions
         id: versions

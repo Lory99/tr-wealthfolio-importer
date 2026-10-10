@@ -100,10 +100,10 @@ zip compiled on Windows installs fine on Linux.
 ## Releasing
 
 1. Bump `version` in `package.json` and `manifest.json` (keep them in sync).
-2. Push to `master`. The `auto-release` workflow creates tag `v<version>`
-   and the GitHub Release automatically (if missing).
-3. The `release` workflow then runs `pnpm bundle` and attaches
-   `dist/trade-republic-importer-<version>.zip` to the Release.
+2. Push to `master` → CI runs (type-check + build).
+3. When CI is green, the `auto-release` workflow creates tag `v<version>`
+   and the GitHub Release, builds `dist/trade-republic-importer-<version>.zip`
+   and attaches it. No release is created if CI fails.
 
 ## Permissions
 
